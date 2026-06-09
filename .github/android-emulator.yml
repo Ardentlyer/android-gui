@@ -4,7 +4,6 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "Connection mode: gui or console"
         type: choice
         options:
           - gui

@@ -4,7 +4,10 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Connection mode: gui or console
+        type: choice
+        options:
+          - gui
+          - console
         required: false
         default: "gui"
       api_level:
@@ -12,9 +15,10 @@ on:
         required: false
         default: "35"
       keep_alive_minutes:
-        description: Minutes to keep GUI alive after emulator starts
+        description: Minutes to keep the emulator alive after it starts
+        type: number
         required: false
-        default: "120"
+        default: 120
 
 jobs:
   android:
@@ -24,6 +28,7 @@ jobs:
     env:
       DISPLAY: :99
       SCREEN_SIZE: 1280x800x24
+      KEEP_ALIVE_MINUTES: ${{ github.event.inputs.keep_alive_minutes }}
 
     steps:
       - name: Checkout
@@ -132,10 +137,11 @@ jobs:
             adb devices
             adb shell getprop ro.build.version.release
             echo "Android GUI is ready. Keep this job running while you use noVNC."
-            sleep $((${{ github.event.inputs.keep_alive_minutes }} * 60))
+            KEEP_ALIVE_SECONDS=$((KEEP_ALIVE_MINUTES * 60))
+            sleep "$KEEP_ALIVE_SECONDS"
 
       - name: Start Android emulator in console mode
-        if: ${{ github.event.inputs.mode = 'gui' }}
+        if: ${{ github.event.inputs.mode != 'gui' }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: ${{ github.event.inputs.api_level }}
@@ -148,4 +154,5 @@ jobs:
             adb devices
             adb shell getprop ro.build.version.release
             echo "Android console mode is ready. Use the tmate console and run: adb devices"
-            sleep $((${{ github.event.inputs.keep_alive_minutes }} * 60))
+            KEEP_ALIVE_SECONDS=$((KEEP_ALIVE_MINUTES * 60))
+            sleep "$KEEP_ALIVE_SECONDS"

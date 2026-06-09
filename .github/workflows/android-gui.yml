@@ -45,6 +45,21 @@ jobs:
 
           VNC_PASSWORD="$(openssl rand -base64 18)"
           echo "VNC_PASSWORD=$VNC_PASSWORD" >> "$GITHUB_ENV"
+          {
+            echo "### Android GUI connection info"
+            echo ""
+            echo "VNC password: \`$VNC_PASSWORD\`"
+            echo ""
+            echo "If a noVNC URL is not printed, use the tmate SSH command from the next step with port forwarding:"
+            echo ""
+            echo "\`\`\`bash"
+            echo "ssh -L 6080:localhost:6080 USER@HOST"
+            echo "\`\`\`"
+            echo ""
+            echo "Then open:"
+            echo ""
+            echo "http://localhost:6080/vnc.html?autoconnect=true&resize=scale"
+          } >> "$GITHUB_STEP_SUMMARY"
 
           Xvfb "$DISPLAY" -screen 0 "$SCREEN_SIZE" -ac +extension GLX +render -noreset > /tmp/xvfb.log 2>&1 &
           sleep 2
@@ -79,9 +94,12 @@ jobs:
             sleep 2
           done
 
-          echo "Cloudflare tunnel did not publish a URL in time."
+          echo "Cloudflare tunnel did not publish a URL in time. Continuing with tmate fallback."
           cat /tmp/cloudflared.log
-          exit 1
+          {
+            echo ""
+            echo "Cloudflare quick tunnel did not publish a URL. The workflow will continue with tmate."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Open tmate fallback console
         uses: mxschmitt/action-tmate@v3

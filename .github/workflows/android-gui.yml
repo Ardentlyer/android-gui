@@ -1,8 +1,12 @@
-name: Android Emulator GUI
+name: Android Emulator
 
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: Connection mode: gui or console
+        required: false
+        default: "gui"
       api_level:
         description: Android API level
         required: false
@@ -13,7 +17,7 @@ on:
         default: "120"
 
 jobs:
-  gui:
+  android:
     runs-on: ubuntu-latest
     timeout-minutes: 360
 
@@ -23,7 +27,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Enable KVM
         run: |
@@ -33,6 +37,7 @@ jobs:
           ls -l /dev/kvm
 
       - name: Install desktop, VNC, noVNC, and tunnel tools
+        if: ${{ github.event.inputs.mode == 'gui' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y xvfb fluxbox x11vnc novnc websockify curl
@@ -40,6 +45,7 @@ jobs:
           sudo install -m 0755 cloudflared /usr/local/bin/cloudflared
 
       - name: Start browser-accessible Android desktop
+        if: ${{ github.event.inputs.mode == 'gui' }}
         run: |
           set -euo pipefail
 
@@ -61,17 +67,20 @@ jobs:
             echo "http://localhost:6080/vnc.html?autoconnect=true&resize=scale"
           } >> "$GITHUB_STEP_SUMMARY"
 
-          Xvfb "$DISPLAY" -screen 0 "$SCREEN_SIZE" -ac +extension GLX +render -noreset > /tmp/xvfb.log 2>&1 &
+          unset RUNNER_TRACKING_ID
+
+          nohup Xvfb "$DISPLAY" -screen 0 "$SCREEN_SIZE" -ac +extension GLX +render -noreset > /tmp/xvfb.log 2>&1 &
           sleep 2
-          fluxbox > /tmp/fluxbox.log 2>&1 &
-          x11vnc -display "$DISPLAY" -rfbport 5900 -forever -shared -passwd "$VNC_PASSWORD" -bg -o /tmp/x11vnc.log
+          nohup fluxbox > /tmp/fluxbox.log 2>&1 &
+          nohup x11vnc -display "$DISPLAY" -rfbport 5900 -forever -shared -passwd "$VNC_PASSWORD" -o /tmp/x11vnc.log > /tmp/x11vnc.stdout.log 2>&1 &
 
-          websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/novnc.log 2>&1 &
-          cloudflared tunnel --url http://localhost:6080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+          nohup websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/novnc.log 2>&1 &
+          nohup cloudflared tunnel --url http://localhost:6080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+          disown || true
 
-          for i in {1..30}; do
+          for i in {1..60}; do
             NOVNC_URL="$(grep -Eo 'https://[-a-zA-Z0-9]+\.trycloudflare\.com' /tmp/cloudflared.log | head -n 1 || true)"
-            if [ -n "$NOVNC_URL" ]; then
+            if [ -n "$NOVNC_URL" ] && curl -fsS "$NOVNC_URL/vnc.html" > /dev/null; then
               {
                 echo "### Android GUI is starting"
                 echo ""
@@ -101,13 +110,14 @@ jobs:
             echo "Cloudflare quick tunnel did not publish a URL. The workflow will continue with tmate."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Open tmate fallback console
+      - name: Open tmate console
         uses: mxschmitt/action-tmate@v3
         with:
-          limit-access-to-actor: true
+          limit-access-to-actor: false
           detached: true
 
-      - name: Start Android emulator with visible window
+      - name: Start Android emulator in GUI mode
+        if: ${{ github.event.inputs.mode == 'gui' }}
         uses: reactivecircus/android-emulator-runner@v2
         env:
           DISPLAY: :99
@@ -122,4 +132,20 @@ jobs:
             adb devices
             adb shell getprop ro.build.version.release
             echo "Android GUI is ready. Keep this job running while you use noVNC."
+            sleep $((${{ github.event.inputs.keep_alive_minutes }} * 60))
+
+      - name: Start Android emulator in console mode
+        if: ${{ github.event.inputs.mode = 'gui' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ github.event.inputs.api_level }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+          disable-animations: true
+          script: |
+            adb devices
+            adb shell getprop ro.build.version.release
+            echo "Android console mode is ready. Use the tmate console and run: adb devices"
             sleep $((${{ github.event.inputs.keep_alive_minutes }} * 60))

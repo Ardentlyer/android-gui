@@ -45,9 +45,15 @@ jobs:
         if: ${{ github.event.inputs.mode == 'gui' }}
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb fluxbox x11vnc novnc websockify curl
+          sudo apt-get install -y xvfb fluxbox x11vnc novnc websockify curl libpulse0
           curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
           sudo install -m 0755 cloudflared /usr/local/bin/cloudflared
+
+      - name: Install emulator runtime libraries
+        if: ${{ github.event.inputs.mode != 'gui' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libpulse0
 
       - name: Start browser-accessible Android desktop
         if: ${{ github.event.inputs.mode == 'gui' }}

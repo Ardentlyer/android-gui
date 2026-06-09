@@ -1,0 +1,50 @@
+name: Android Emulator Console
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_level:
+        description: Android API level
+        required: false
+        default: "35"
+      keep_alive_minutes:
+        description: Minutes to keep console alive after emulator starts
+        required: false
+        default: "120"
+
+jobs:
+  console:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - name: Open tmate console
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
+          detached: true
+
+      - name: Start Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ github.event.inputs.api_level }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          disable-animations: true
+          script: |
+            adb devices
+            adb shell getprop ro.build.version.release
+            echo "Android emulator is ready. Use the tmate console above and run: adb devices"
+            sleep $((${{ github.event.inputs.keep_alive_minutes }} * 60))

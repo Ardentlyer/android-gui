@@ -1,0 +1,107 @@
+name: Android Emulator GUI
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_level:
+        description: Android API level
+        required: false
+        default: "35"
+      keep_alive_minutes:
+        description: Minutes to keep GUI alive after emulator starts
+        required: false
+        default: "120"
+
+jobs:
+  gui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    env:
+      DISPLAY: :99
+      SCREEN_SIZE: 1280x800x24
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - name: Install desktop, VNC, noVNC, and tunnel tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb fluxbox x11vnc novnc websockify curl
+          curl -L https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64 -o cloudflared
+          sudo install -m 0755 cloudflared /usr/local/bin/cloudflared
+
+      - name: Start browser-accessible Android desktop
+        run: |
+          set -euo pipefail
+
+          VNC_PASSWORD="$(openssl rand -base64 18)"
+          echo "VNC_PASSWORD=$VNC_PASSWORD" >> "$GITHUB_ENV"
+
+          Xvfb "$DISPLAY" -screen 0 "$SCREEN_SIZE" -ac +extension GLX +render -noreset > /tmp/xvfb.log 2>&1 &
+          sleep 2
+          fluxbox > /tmp/fluxbox.log 2>&1 &
+          x11vnc -display "$DISPLAY" -rfbport 5900 -forever -shared -passwd "$VNC_PASSWORD" -bg -o /tmp/x11vnc.log
+
+          websockify --web=/usr/share/novnc 6080 localhost:5900 > /tmp/novnc.log 2>&1 &
+          cloudflared tunnel --url http://localhost:6080 --no-autoupdate > /tmp/cloudflared.log 2>&1 &
+
+          for i in {1..30}; do
+            NOVNC_URL="$(grep -Eo 'https://[-a-zA-Z0-9]+\.trycloudflare\.com' /tmp/cloudflared.log | head -n 1 || true)"
+            if [ -n "$NOVNC_URL" ]; then
+              {
+                echo "### Android GUI is starting"
+                echo ""
+                echo "noVNC URL: $NOVNC_URL/vnc.html?autoconnect=true&resize=scale"
+                echo ""
+                echo "VNC password: \`$VNC_PASSWORD\`"
+                echo ""
+                echo "The emulator window appears after the next step finishes booting Android."
+              } >> "$GITHUB_STEP_SUMMARY"
+
+              echo "============================================================"
+              echo "Open this URL in your browser:"
+              echo "$NOVNC_URL/vnc.html?autoconnect=true&resize=scale"
+              echo
+              echo "VNC password:"
+              echo "$VNC_PASSWORD"
+              echo "============================================================"
+              exit 0
+            fi
+            sleep 2
+          done
+
+          echo "Cloudflare tunnel did not publish a URL in time."
+          cat /tmp/cloudflared.log
+          exit 1
+
+      - name: Open tmate fallback console
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
+          detached: true
+
+      - name: Start Android emulator with visible window
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          DISPLAY: :99
+        with:
+          api-level: ${{ github.event.inputs.api_level }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_7
+          emulator-options: -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+          disable-animations: true
+          script: |
+            adb devices
+            adb shell getprop ro.build.version.release
+            echo "Android GUI is ready. Keep this job running while you use noVNC."
+            sleep $((${{ github.event.inputs.keep_alive_minutes }} * 60))

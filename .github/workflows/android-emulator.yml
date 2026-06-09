@@ -13,7 +13,7 @@ on:
       api_level:
         description: Android API level
         required: false
-        default: "35"
+        default: "34"
       keep_alive_minutes:
         description: Minutes to keep the emulator alive after it starts
         type: number
@@ -28,7 +28,6 @@ jobs:
     env:
       DISPLAY: :99
       SCREEN_SIZE: 1280x800x24
-      KEEP_ALIVE_MINUTES: ${{ github.event.inputs.keep_alive_minutes }}
 
     steps:
       - name: Checkout
@@ -136,15 +135,15 @@ jobs:
           api-level: ${{ github.event.inputs.api_level }}
           target: google_apis
           arch: x86_64
-          profile: pixel_7
-          emulator-options: -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+          profile: pixel_2
+          emulator-boot-timeout: 1200
+          emulator-options: -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot -no-metrics
           disable-animations: true
           script: |
             adb devices
             adb shell getprop ro.build.version.release
             echo "Android GUI is ready. Keep this job running while you use noVNC."
-            KEEP_ALIVE_SECONDS=$((KEEP_ALIVE_MINUTES * 60))
-            sleep "$KEEP_ALIVE_SECONDS"
+            sleep "${{ github.event.inputs.keep_alive_minutes }}m"
 
       - name: Start Android emulator in console mode
         if: ${{ github.event.inputs.mode != 'gui' }}
@@ -153,12 +152,12 @@ jobs:
           api-level: ${{ github.event.inputs.api_level }}
           target: google_apis
           arch: x86_64
-          profile: pixel_7
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot
+          profile: pixel_2
+          emulator-boot-timeout: 1200
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot -no-metrics
           disable-animations: true
           script: |
             adb devices
             adb shell getprop ro.build.version.release
             echo "Android console mode is ready. Use the tmate console and run: adb devices"
-            KEEP_ALIVE_SECONDS=$((KEEP_ALIVE_MINUTES * 60))
-            sleep "$KEEP_ALIVE_SECONDS"
+            sleep "${{ github.event.inputs.keep_alive_minutes }}m"
